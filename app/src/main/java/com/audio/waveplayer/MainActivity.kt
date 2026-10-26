@@ -11,6 +11,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -242,11 +244,7 @@ class MainActivity : ComponentActivity() {
                                         SettingsScreen(
                                             themeSettings = themeSettings,
                                             onThemeModeChanged = { mode ->
-                                                if (mode == ThemeMode.AMOLED && themeSettings.useDynamicColor) {
-                                                    // Handled via toast in settings UI
-                                                } else {
-                                                    coroutineScope.launch { themePreferencesManager.setThemeMode(mode) }
-                                                }
+                                                coroutineScope.launch { themePreferencesManager.setThemeMode(mode) }
                                             },
                                             onDynamicColorChanged = { enabled ->
                                                 coroutineScope.launch { themePreferencesManager.setUseDynamicColor(enabled) }
@@ -284,6 +282,7 @@ class MainActivity : ComponentActivity() {
                                             isFavorite = isFav,
                                             playlists = playlists,
                                             transitionProgress = transitionProgress.value,
+                                            designStyle = themeSettings.designStyle,
                                             onPlayPauseClick = { playbackViewModel.togglePlayPause() },
                                             onSeek = { playbackViewModel.seekTo(it) },
                                             onFavoriteClick = { currentSong?.let { playbackViewModel.toggleFavorite(it) } },
@@ -332,6 +331,22 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val isSystemDark = isSystemInDarkTheme()
+
+    var showThemeDialog by remember { mutableStateOf<String?>(null) }
+
+    if (showThemeDialog != null) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = null },
+            title = { Text("Theme Already Active") },
+            text = { Text(showThemeDialog ?: "") },
+            confirmButton = {
+                Button(onClick = { showThemeDialog = null }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -461,9 +476,12 @@ fun SettingsScreen(
                     ThemeMode.entries.forEach { mode ->
                         val isSelected = themeSettings.themeMode == mode
                         val isAmoledDisabled = mode == ThemeMode.AMOLED && themeSettings.useDynamicColor
+                        val isLightRedundant = mode == ThemeMode.LIGHT && !isSystemDark
+                        val isDarkRedundant = mode == ThemeMode.DARK && isSystemDark
+                        val isDisabled = isAmoledDisabled || isLightRedundant || isDarkRedundant
 
                         val containerColor = when {
-                            isAmoledDisabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            isDisabled -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             isSelected -> MaterialTheme.colorScheme.primaryContainer
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         }
@@ -474,14 +492,23 @@ fun SettingsScreen(
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(containerColor)
                                 .clickable {
-                                    if (isAmoledDisabled) {
-                                        Toast.makeText(
-                                            context,
-                                            "Material You Dynamic Colour is enabled. Turn it off to use AMOLED mode.",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else {
-                                        onThemeModeChanged(mode)
+                                    when {
+                                        isAmoledDisabled -> {
+                                            Toast.makeText(
+                                                context,
+                                                "Material You Dynamic Colour is enabled. Turn it off to use AMOLED mode.",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                        isLightRedundant -> {
+                                            showThemeDialog = "Light mode is already active through System mode. Change your phone's appearance or select another theme."
+                                        }
+                                        isDarkRedundant -> {
+                                            showThemeDialog = "Dark mode is already active through System mode. Change your phone's appearance or select another theme."
+                                        }
+                                        else -> {
+                                            onThemeModeChanged(mode)
+                                        }
                                     }
                                 }
                                 .padding(vertical = 12.dp, horizontal = 8.dp),
@@ -491,7 +518,7 @@ fun SettingsScreen(
                                 text = mode.name,
                                 style = MaterialTheme.typography.labelLarge,
                                 color = when {
-                                    isAmoledDisabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    isDisabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                                     isSelected -> MaterialTheme.colorScheme.onPrimaryContainer
                                     else -> MaterialTheme.colorScheme.onSurfaceVariant
                                 }
